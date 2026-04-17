@@ -1,0 +1,31 @@
+groups:
+  - name: nexaplay.rules
+    rules:
+      - alert: ServiceDown
+        # Design step: match the internship brief exactly so the alert teaches
+        # the difference between target reachability and application errors.
+        expr: up{job="nexaplay-app"} == 0
+        for: 1m
+        labels:
+          severity: critical
+          service: nexaplay-app
+        annotations:
+          summary: "NexaPlay app is unreachable"
+          description: "Prometheus has not been able to scrape the NexaPlay app for at least 1 minute."
+
+      - alert: HighErrorRate
+        # Design step: use a percentage-based expression so the alert scales
+        # with traffic volume instead of relying on a fixed raw error count.
+        expr: |
+          (
+            sum(rate(http_requests_total{job="nexaplay-app", status=~"5.."}[1m]))
+            /
+            sum(rate(http_requests_total{job="nexaplay-app"}[1m]))
+          ) * 100 > 5
+        for: 2m
+        labels:
+          severity: warning
+          service: nexaplay-app
+        annotations:
+          summary: "NexaPlay app error rate is high"
+          description: "More than 5% of recent NexaPlay app requests are failing with 5xx responses."

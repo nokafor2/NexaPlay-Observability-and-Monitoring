@@ -1,0 +1,5 @@
+# Placeholder dependencies for the temporary NexaPlay app.
+# Replace these with the real application requirements when they are provided.
+fastapi
+uvicorn[standard]
+prometheus-client

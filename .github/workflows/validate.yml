@@ -3,30 +3,39 @@ name: Validate Monitoring Stack
 on:
   push:
     branches:
+      # Run automatically whenever code is pushed to the main branch.
       - main
+  # Also validate incoming pull requests before merging.
   pull_request:
 
 jobs:
   validate:
+    # Use a Linux runner because Docker and the validation tools are available there.
     runs-on: ubuntu-latest
 
     steps:
       - name: Check out repository
+        # Download the repository contents into the workflow runner.
         uses: actions/checkout@v4
 
       - name: Set up Python
+        # Install Python so syntax checks can run.
         uses: actions/setup-python@v5
         with:
+          # Match the project's expected Python version.
           python-version: "3.11"
 
       - name: Validate Python syntax
+        # Check that both Python files compile without syntax errors.
         run: python -m py_compile app/main.py scripts/export_to_s3.py
 
       - name: Validate Docker Compose
+        # Expand and validate the Compose file structure.
         run: docker compose -f docker-compose.yml config
 
       - name: Validate Prometheus config
         run: >
+          # Start a temporary Prometheus container and run promtool inside it.
           docker run --rm
           -v "${{ github.workspace }}/prometheus:/etc/prometheus"
           prom/prometheus:latest
@@ -34,6 +43,7 @@ jobs:
 
       - name: Validate Prometheus alert rules
         run: >
+          # Check the alert rule file syntax with promtool.
           docker run --rm
           -v "${{ github.workspace }}/prometheus/rules:/etc/prometheus/rules"
           prom/prometheus:latest
@@ -41,6 +51,7 @@ jobs:
 
       - name: Validate Alertmanager config
         run: >
+          # Check the Alertmanager configuration using amtool.
           docker run --rm
           -v "${{ github.workspace }}/alertmanager:/etc/alertmanager"
           prom/alertmanager:latest

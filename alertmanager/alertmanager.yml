@@ -1,17 +1,24 @@
 global:
+  # Wait this long before treating an alert as fully resolved.
   resolve_timeout: 5m
 
 route:
   # Design step: keep a single default receiver first. Routing can become more
   # advanced later once the core alert flow is confirmed end-to-end.
+  # Send all alerts to the `webhook-site` receiver by default.
   receiver: webhook-site
+  # Wait briefly so related alerts can be grouped into one notification.
   group_wait: 10s
+  # If more alerts join the same group, resend after this interval.
   group_interval: 30s
+  # Re-notify for still-firing alerts after this amount of time.
   repeat_interval: 2h
 
 receivers:
   - name: webhook-site
     webhook_configs:
       # Replace this placeholder with your own webhook.site URL before testing.
+      # Post alert payloads to the webhook endpoint.
       - url: "https://example.com/webhook"
+        # Also send a notification when the alert recovers.
         send_resolved: true

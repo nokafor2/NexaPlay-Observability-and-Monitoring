@@ -1,155 +1,131 @@
-import asyncio
 import random
 import time
-from threading import Lock
+import threading
 
-from fastapi import FastAPI, HTTPException, Response
+from fastapi import FastAPI
+from fastapi.responses import Response
 from prometheus_client import CONTENT_TYPE_LATEST, Counter, Gauge, Histogram, generate_latest
 
-# Design step 1:
-# Keep this service intentionally small and well-commented so the monitoring
-# stack can be exercised before the real NexaPlay application is available.
-app = FastAPI(title="NexaPlay Placeholder Game Server", version="0.1.0")
+# Create the FastAPI application object used by Uvicorn.
+app = FastAPI()
 
-# Design step 2:
-# Reuse metric names that match the internship brief so Prometheus, Grafana,
-# and alert rules can be tested now and reused later with minimal changes.
-HTTP_REQUESTS = Counter(
+# ── Metrics ───────────────────────────────────────────────────────────────────
+
+REQUEST_COUNT = Counter(
     "http_requests_total",
-    "Total HTTP requests handled by the NexaPlay placeholder app.",
-    ["method", "endpoint", "status"],
+    "Total number of HTTP requests",
+    # Label requests by endpoint and response status for later filtering in Prometheus.
+    ["endpoint", "status"]
 )
-HTTP_REQUEST_DURATION = Histogram(
-    "http_request_duration_seconds",
-    "Observed request duration for placeholder endpoints.",
-    ["endpoint"],
-)
+
 ACTIVE_PLAYERS = Gauge(
     "nexaplay_active_players",
-    "Current number of active players connected to the placeholder app.",
+    "Number of currently active players"
 )
 
-state_lock = Lock()
+REQUEST_DURATION = Histogram(
+    "http_request_duration_seconds",
+    "Request duration in seconds",
+    # Track latency separately for each endpoint.
+    ["endpoint"]
+)
+
+MATCHMAKING_QUEUE = Gauge(
+    "nexaplay_matchmaking_queue",
+    "Number of players currently in matchmaking queue"
+)
+
+# ── Incident state ────────────────────────────────────────────────────────────
+
 incident_active = False
-active_players = 125
-ACTIVE_PLAYERS.set(active_players)
 
+# ── Background: simulate active players ──────────────────────────────────────
 
-def get_state():
-    with state_lock:
-        return {"incident_active": incident_active, "active_players": active_players}
+def simulate_players():
+    while True:
+        if incident_active:
+            # During an incident, active players dip while the queue grows.
+            ACTIVE_PLAYERS.set(random.randint(200, 400))
+            MATCHMAKING_QUEUE.set(random.randint(80, 150))
+        else:
+            # In normal operation, player count is higher and queue pressure is lower.
+            ACTIVE_PLAYERS.set(random.randint(800, 1200))
+            MATCHMAKING_QUEUE.set(random.randint(10, 40))
+        # Update the simulation every 5 seconds so dashboards keep moving.
+        time.sleep(5)
 
+# Start the background simulator without blocking the main API server.
+threading.Thread(target=simulate_players, daemon=True).start()
 
-def set_incident(value: bool) -> None:
-    global incident_active
-    with state_lock:
-        incident_active = value
+# ── Routes ────────────────────────────────────────────────────────────────────
 
+@app.get("/health")
+def health():
+    # Count health-check requests as successful 200 responses.
+    REQUEST_COUNT.labels(endpoint="/health", status="200").inc()
+    return {"status": "ok"}
 
-def change_active_players(delta: int) -> int:
-    global active_players
-    with state_lock:
-        active_players = max(0, active_players + delta)
-        ACTIVE_PLAYERS.set(active_players)
-        return active_players
+@app.get("/player/login")
+def player_login():
+    # Record the start time so the request duration can be measured.
+    start = time.time()
+    # Simulate a small amount of application processing time.
+    time.sleep(random.uniform(0.05, 0.15))
+    # Count the request as a successful login endpoint call.
+    REQUEST_COUNT.labels(endpoint="/player/login", status="200").inc()
+    # Save the observed latency to the histogram metric.
+    REQUEST_DURATION.labels(endpoint="/player/login").observe(time.time() - start)
+    return {"message": "Player logged in"}
 
+@app.get("/matchmaking/find")
+def find_match():
+    start = time.time()
+    if incident_active:
+        # Simulate slow matchmaking responses during the incident drill.
+        time.sleep(random.uniform(2.0, 5.0))
+        if random.random() < 0.6:
+            # Emit a 500 response often enough to trigger the HighErrorRate alert.
+            REQUEST_COUNT.labels(endpoint="/matchmaking/find", status="500").inc()
+            REQUEST_DURATION.labels(endpoint="/matchmaking/find").observe(time.time() - start)
+            return Response(content="Matchmaking error", status_code=500)
+    else:
+        # Normal matchmaking should be much faster.
+        time.sleep(random.uniform(0.1, 0.3))
 
-@app.middleware("http")
-async def instrument_requests(request, call_next):
-    # Design step 3:
-    # Use middleware instead of per-endpoint counters so every route is covered
-    # consistently, including future routes added during the project.
-    start_time = time.perf_counter()
-    endpoint = request.url.path
-    status_code = 500
+    # Count successful matchmaking requests.
+    REQUEST_COUNT.labels(endpoint="/matchmaking/find", status="200").inc()
+    # Record how long the matchmaking request took.
+    REQUEST_DURATION.labels(endpoint="/matchmaking/find").observe(time.time() - start)
+    return {"match_id": f"match_{random.randint(1000, 9999)}", "players": 2}
 
-    try:
-        response = await call_next(request)
-        status_code = response.status_code
-        return response
-    except HTTPException as exc:
-        status_code = exc.status_code
-        raise
-    except Exception:
-        status_code = 500
-        raise
-    finally:
-        duration = time.perf_counter() - start_time
-        HTTP_REQUESTS.labels(
-            method=request.method,
-            endpoint=endpoint,
-            status=str(status_code),
-        ).inc()
-        HTTP_REQUEST_DURATION.labels(endpoint=endpoint).observe(duration)
+@app.get("/game/session")
+def game_session():
+    start = time.time()
+    # Simulate session lookup work.
+    time.sleep(random.uniform(0.05, 0.2))
+    REQUEST_COUNT.labels(endpoint="/game/session", status="200").inc()
+    REQUEST_DURATION.labels(endpoint="/game/session").observe(time.time() - start)
+    return {"session_id": f"session_{random.randint(1000, 9999)}", "status": "active"}
 
-
-@app.get("/")
-async def root():
-    return {
-        "service": "nexaplay-placeholder",
-        "message": "Temporary app scaffold for the monitoring internship project.",
-        "state": get_state(),
-    }
-
-
-@app.get("/healthz")
-async def healthz():
-    return {"status": "ok", **get_state()}
-
-
-@app.post("/login")
-async def login():
-    # A small random increment keeps the active-player metric moving for demos.
-    updated_total = change_active_players(random.randint(1, 5))
-    return {"message": "Player logged in", "active_players": updated_total}
-
-
-@app.post("/logout")
-async def logout():
-    updated_total = change_active_players(-random.randint(1, 3))
-    return {"message": "Player logged out", "active_players": updated_total}
-
-
-@app.get("/matchmaking")
-async def matchmaking():
-    snapshot = get_state()
-    if snapshot["incident_active"]:
-        # Design step 4:
-        # The placeholder incident simulates a degraded but not fully-dead
-        # service, which makes the HighErrorRate alert meaningful to test.
-        await asyncio.sleep(2.5)
-        if random.random() < 0.35:
-            raise HTTPException(status_code=500, detail="Matchmaking is degraded")
-        return {
-            "message": "Matchmaking is slow",
-            "queue_time_seconds": round(random.uniform(8.0, 14.0), 2),
-        }
-
-    await asyncio.sleep(0.2)
-    return {
-        "message": "Match found",
-        "queue_time_seconds": round(random.uniform(1.0, 2.5), 2),
-    }
-
-
-@app.get("/session/start")
-async def session_start():
-    await asyncio.sleep(0.1)
-    return {"message": "Game session started"}
-
+# ── Incident controls ─────────────────────────────────────────────────────────
 
 @app.post("/admin/incident/start")
-async def start_incident():
-    set_incident(True)
-    return {"message": "Incident mode enabled", **get_state()}
-
+def start_incident():
+    global incident_active
+    # Turn on degraded-mode behavior for the matchmaking endpoint.
+    incident_active = True
+    return {"message": "Incident started. Matchmaking is now degraded."}
 
 @app.post("/admin/incident/reset")
-async def reset_incident():
-    set_incident(False)
-    return {"message": "Incident mode cleared", **get_state()}
+def reset_incident():
+    global incident_active
+    # Return the placeholder app to healthy behavior.
+    incident_active = False
+    return {"message": "Incident resolved. System back to normal."}
 
+# ── Metrics endpoint ──────────────────────────────────────────────────────────
 
 @app.get("/metrics")
-async def metrics():
+def metrics():
+    # Expose all Prometheus metrics in the text format Prometheus expects.
     return Response(generate_latest(), media_type=CONTENT_TYPE_LATEST)

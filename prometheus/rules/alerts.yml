@@ -1,29 +1,39 @@
 groups:
+  # Group related app alerts together for easier maintenance.
   - name: nexaplay.rules
     rules:
       - alert: ServiceDown
         # Design step: match the internship brief exactly so the alert teaches
         # the difference between target reachability and application errors.
+        # Fire when Prometheus can no longer scrape the app target.
         expr: up{job="nexaplay-app"} == 0
+        # Require the outage to last 1 minute before notifying.
         for: 1m
         labels:
+          # Mark this as a critical service-availability issue.
           severity: critical
+          # Attach the affected service name to the alert metadata.
           service: nexaplay-app
         annotations:
+          # Short message shown in Prometheus, Alertmanager, and notifications.
           summary: "NexaPlay app is unreachable"
+          # Longer human-readable explanation for responders.
           description: "Prometheus has not been able to scrape the NexaPlay app for at least 1 minute."
 
       - alert: HighErrorRate
         # Design step: use a percentage-based expression so the alert scales
         # with traffic volume instead of relying on a fixed raw error count.
         expr: |
+          # Calculate the percentage of 5xx responses over total requests.
           (
             sum(rate(http_requests_total{job="nexaplay-app", status=~"5.."}[1m]))
             /
             sum(rate(http_requests_total{job="nexaplay-app"}[1m]))
           ) * 100 > 5
+        # Only fire if the high error rate persists for 2 minutes.
         for: 2m
         labels:
+          # Mark this as warning-level because the service is reachable but unhealthy.
           severity: warning
           service: nexaplay-app
         annotations:

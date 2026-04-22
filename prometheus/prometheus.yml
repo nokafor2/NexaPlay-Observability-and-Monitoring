@@ -1,27 +1,35 @@
 global:
   # Design step: keep the global scrape interval conservative, then override
   # the app job to 10s because the internship tasks explicitly ask for that.
+  # Scrape targets every 15 seconds by default.
   scrape_interval: 15s
+  # Evaluate alert rules every 15 seconds.
   evaluation_interval: 15s
 
 alerting:
   alertmanagers:
     - static_configs:
         - targets:
+            # Send fired alerts to the Alertmanager container.
             - alertmanager:9093
 
 rule_files:
+  # Load all Prometheus alert rule files from this directory.
   - /etc/prometheus/rules/*.yml
 
 scrape_configs:
   - job_name: nexaplay-app
+    # Read the app's metrics from the standard Prometheus endpoint.
     metrics_path: /metrics
+    # Scrape the app more frequently to match the internship task.
     scrape_interval: 10s
     static_configs:
       - targets:
+          # Reach the app container by its Docker service name and port.
           - app:8000
 
   - job_name: node-exporter
     static_configs:
       - targets:
+          # Scrape host-style system metrics from Node Exporter.
           - node-exporter:9100

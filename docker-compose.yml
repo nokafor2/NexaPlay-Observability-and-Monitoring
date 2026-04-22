@@ -1,71 +1,97 @@
 services:
   app:
     build:
+      # Build the placeholder FastAPI service from the local `app` folder.
       context: ./app
+    # Give the container a stable name for easier Docker commands and debugging.
     container_name: nexaplay-app
     ports:
+      # Expose the app on localhost:8000.
       - "8000:8000"
+    # Restart the container unless it was intentionally stopped.
     restart: unless-stopped
     networks:
+      # Attach the app to the shared monitoring network.
       - monitoring
 
   prometheus:
+    # Use the official Prometheus image instead of building a custom one.
     image: prom/prometheus:latest
     container_name: nexaplay-prometheus
     command:
       # Design step: enable the lifecycle endpoint so config reloads can happen
       # without recreating the container during the internship exercises.
+      # Tell Prometheus where its main configuration file lives in the container.
       - --config.file=/etc/prometheus/prometheus.yml
+      # Turn on the `/-/reload` endpoint so config can be reloaded without restart.
       - --web.enable-lifecycle
     ports:
+      # Expose the Prometheus UI on localhost:9090.
       - "9090:9090"
     volumes:
+      # Mount the main scrape configuration as read-only.
       - ./prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      # Mount alert rule files as read-only.
       - ./prometheus/rules:/etc/prometheus/rules:ro
     restart: unless-stopped
     depends_on:
+      # Start after the app and alertmanager services are available.
       - app
       - alertmanager
     networks:
       - monitoring
 
   alertmanager:
+    # Use the official Alertmanager image.
     image: prom/alertmanager:latest
     container_name: nexaplay-alertmanager
     command:
+      # Point Alertmanager to the mounted configuration file.
       - --config.file=/etc/alertmanager/alertmanager.yml
     ports:
+      # Expose the Alertmanager UI on localhost:9093.
       - "9093:9093"
     volumes:
+      # Mount the Alertmanager config as read-only.
       - ./alertmanager/alertmanager.yml:/etc/alertmanager/alertmanager.yml:ro
     restart: unless-stopped
     networks:
       - monitoring
 
   grafana:
+    # Use the official Grafana image.
     image: grafana/grafana:latest
     container_name: nexaplay-grafana
     environment:
+      # Read the admin username from `.env`, defaulting to `admin`.
       GF_SECURITY_ADMIN_USER: ${GRAFANA_ADMIN_USER:-admin}
+      # Read the admin password from `.env`, defaulting to `admin`.
       GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:-admin}
     ports:
+      # Expose the Grafana UI on localhost:3000.
       - "3000:3000"
     volumes:
       # Design step: keep provisioning and dashboard JSON in version control so
       # the environment can be recreated after `docker compose down -v`.
+      # Auto-load datasources and dashboard providers from the repo.
       - ./grafana/provisioning:/etc/grafana/provisioning:ro
+      # Make exported dashboard JSON files available to Grafana.
       - ./grafana/dashboards:/var/lib/grafana/dashboards:ro
+      # Persist Grafana's internal data across container restarts.
       - grafana-storage:/var/lib/grafana
     restart: unless-stopped
     depends_on:
+      # Start Grafana after Prometheus so the datasource target exists.
       - prometheus
     networks:
       - monitoring
 
   node-exporter:
+    # Use Node Exporter to expose host-style CPU and memory metrics.
     image: prom/node-exporter:latest
     container_name: nexaplay-node-exporter
     ports:
+      # Expose Node Exporter metrics on localhost:9100.
       - "9100:9100"
     restart: unless-stopped
     networks:
@@ -73,7 +99,9 @@ services:
 
 networks:
   monitoring:
+    # Use Docker's bridge network so all services can reach each other by name.
     driver: bridge
 
 volumes:
+  # Create a named volume for persistent Grafana state.
   grafana-storage:

@@ -20,4 +20,10 @@ COPY main.py .
 EXPOSE 8000
 
 # Start the FastAPI app with Uvicorn when the container launches.
+# Explain the command
+# uvicorn is a ASGI server that runs the FastAPI application.
+# main:app is the application to run.
+# --host 0.0.0.0 is the host to listen on.
+# --port 8000 is the port to listen on.
+# This command starts the FastAPI application on port 8000.
 CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000"]

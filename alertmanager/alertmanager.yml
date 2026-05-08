@@ -19,6 +19,6 @@ receivers:
     webhook_configs:
       # Replace this placeholder with your own webhook.site URL before testing.
       # Post alert payloads to the webhook endpoint.
-      - url: "https://example.com/webhook"
+      - url: "https://webhook.site/7fc31e0b-6ec6-4786-8c5c-745ec9a2cd84"
         # Also send a notification when the alert recovers.
         send_resolved: true
